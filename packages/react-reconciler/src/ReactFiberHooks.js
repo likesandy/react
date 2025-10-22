@@ -2731,7 +2731,7 @@ function mountEvent<Args, Return, F: (...Array<Args>) => Return>(
   hook.memoizedState = ref;
   // $FlowIgnore[incompatible-return]
   return function eventFn() {
-    // ! 执行时检查:不允许在渲染期间调用(只能在副作用(effects)、事件处理器中调用)
+    // ! 执行时检查:不允许在渲染期间调用(只能在副作用(effect)中调用
     if (isInvalidExecutionContextForEventFunction()) {
       throw new Error(
         "A function wrapped in useEffectEvent can't be called during rendering.",
@@ -2750,7 +2750,7 @@ function updateEvent<Args, Return, F: (...Array<Args>) => Return>(
   useEffectEventImpl({ref, nextImpl: callback});
   // $FlowIgnore[incompatible-return]
   return function eventFn() {
-    // ! 执行时检查:不允许在渲染期间调用(只能在副作用(effects)、事件处理器中调用)
+    // ! 执行时检查:不允许在渲染期间调用(只能在副作用(effect)中调用
     if (isInvalidExecutionContextForEventFunction()) {
       throw new Error(
         "A function wrapped in useEffectEvent can't be called during rendering.",
