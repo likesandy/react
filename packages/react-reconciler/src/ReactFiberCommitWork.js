@@ -508,6 +508,7 @@ function commitBeforeMutationEffectsOnFiber(
           if (eventPayloads !== null) {
             for (let ii = 0; ii < eventPayloads.length; ii++) {
               const {ref, nextImpl} = eventPayloads[ii];
+              // ! 绑定最新的 callback
               ref.impl = nextImpl;
             }
           }

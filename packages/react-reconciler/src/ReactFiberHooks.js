@@ -2703,7 +2703,9 @@ function updateEffect(
 function useEffectEventImpl<Args, Return, F: (...Array<Args>) => Return>(
   payload: EventFunctionPayload<Args, Return, F>,
 ) {
+  // ! 标记需要更新
   currentlyRenderingFiber.flags |= UpdateEffect;
+  // ! 给 updateQueue.events 添加内容
   let componentUpdateQueue: null | FunctionComponentUpdateQueue =
     (currentlyRenderingFiber.updateQueue: any);
   if (componentUpdateQueue === null) {
@@ -2724,10 +2726,12 @@ function mountEvent<Args, Return, F: (...Array<Args>) => Return>(
   callback: F,
 ): F {
   const hook = mountWorkInProgressHook();
+  // ! 绑定callback
   const ref = {impl: callback};
   hook.memoizedState = ref;
   // $FlowIgnore[incompatible-return]
   return function eventFn() {
+    // ! 执行时检查:不允许在渲染期间调用(只能在副作用(effects)、事件处理器中调用)
     if (isInvalidExecutionContextForEventFunction()) {
       throw new Error(
         "A function wrapped in useEffectEvent can't be called during rendering.",
@@ -2742,9 +2746,11 @@ function updateEvent<Args, Return, F: (...Array<Args>) => Return>(
 ): F {
   const hook = updateWorkInProgressHook();
   const ref = hook.memoizedState;
+  // ! 重要看后面
   useEffectEventImpl({ref, nextImpl: callback});
   // $FlowIgnore[incompatible-return]
   return function eventFn() {
+    // ! 执行时检查:不允许在渲染期间调用(只能在副作用(effects)、事件处理器中调用)
     if (isInvalidExecutionContextForEventFunction()) {
       throw new Error(
         "A function wrapped in useEffectEvent can't be called during rendering.",
