@@ -1660,6 +1660,7 @@ function mountSyncExternalStore<T>(
       }
     }
   } else {
+    // ! 获取快照
     nextSnapshot = getSnapshot();
     if (__DEV__) {
       if (!didWarnUncachedGetSnapshot) {
@@ -1688,7 +1689,9 @@ function mountSyncExternalStore<T>(
     }
 
     const rootRenderLanes = getWorkInProgressRootRenderLanes();
+    // ! 一致性检查(并发渲染)
     if (!includesBlockingLane(rootRenderLanes)) {
+      // ! 记录渲染时的快照
       pushStoreConsistencyCheck(fiber, getSnapshot, nextSnapshot);
     }
   }
@@ -1696,6 +1699,7 @@ function mountSyncExternalStore<T>(
   // Read the current snapshot from the store on every render. This breaks the
   // normal rules of React, and only works because store updates are
   // always synchronous.
+  // ! 保存状态
   hook.memoizedState = nextSnapshot;
   const inst: StoreInstance<T> = {
     value: nextSnapshot,
@@ -1703,6 +1707,7 @@ function mountSyncExternalStore<T>(
   };
   hook.queue = inst;
 
+  // ! 订阅(判断 store 有没有发生变化,发生变化则进行一次调度,相当于执行了一次setState)
   // Schedule an effect to subscribe to the store.
   mountEffect(subscribeToStore.bind(null, fiber, inst, subscribe), [subscribe]);
 
@@ -1711,6 +1716,7 @@ function mountSyncExternalStore<T>(
   // clean-up function, and we track the deps correctly, we can call pushEffect
   // directly, without storing any additional state. For the same reason, we
   // don't need to set a static flag, either.
+  // ! 外部 store 改变脱离了 react 的控制,内部也要进行订阅
   fiber.flags |= PassiveEffect;
   pushSimpleEffect(
     HookHasEffect | HookPassive,
@@ -1744,6 +1750,7 @@ function updateSyncExternalStore<T>(
     }
     nextSnapshot = getServerSnapshot();
   } else {
+    // ! 获取快照
     nextSnapshot = getSnapshot();
     if (__DEV__) {
       if (!didWarnUncachedGetSnapshot) {
@@ -1761,10 +1768,12 @@ function updateSyncExternalStore<T>(
   const snapshotChanged = !is(prevSnapshot, nextSnapshot);
   if (snapshotChanged) {
     hook.memoizedState = nextSnapshot;
+    // ! 快照发生变化需要标记更新
     markWorkInProgressReceivedUpdate();
   }
   const inst = hook.queue;
 
+  // ! 订阅store(快照发生变化以后需要更新)
   updateEffect(subscribeToStore.bind(null, fiber, inst, subscribe), [
     subscribe,
   ]);
@@ -1773,6 +1782,7 @@ function updateSyncExternalStore<T>(
   // commit phase if there was an interleaved mutation. In concurrent mode
   // this can happen all the time, but even in synchronous mode, an earlier
   // effect may have mutated the store.
+  // ! 一致性检查(如果数据不一致重新render)
   if (
     inst.getSnapshot !== getSnapshot ||
     snapshotChanged ||
@@ -1782,6 +1792,7 @@ function updateSyncExternalStore<T>(
       workInProgressHook.memoizedState.tag & HookHasEffect)
   ) {
     fiber.flags |= PassiveEffect;
+    // ! commit 阶段的 passive phase 执行
     pushSimpleEffect(
       HookHasEffect | HookPassive,
       createEffectInstance(),
@@ -1800,6 +1811,7 @@ function updateSyncExternalStore<T>(
       );
     }
 
+    // ! 并发更新 commit 前推送一致性检查(兜底)
     if (!isHydrating && !includesBlockingLane(renderLanes)) {
       pushStoreConsistencyCheck(fiber, getSnapshot, nextSnapshot);
     }

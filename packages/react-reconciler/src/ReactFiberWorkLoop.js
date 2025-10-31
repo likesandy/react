@@ -1614,6 +1614,8 @@ function commitRootWhenReady(
   );
 }
 
+// ! 检测外部 store 数据唯一性(并发模式)
+// ! 在并发模式下，渲染可能会被中断,在渲染过程中，外部 store 的数据可能已经更新，如果数据不一致，React 需要重新渲染以使用最新的数据
 function isRenderConsistentWithExternalStores(finishedWork: Fiber): boolean {
   // Search the rendered tree for external store reads, and check whether the
   // stores were mutated in a concurrent event. Intentionally using an iterative
