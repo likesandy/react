@@ -1345,6 +1345,13 @@ function updateReducerImpl<S, A>(
     queue.pending = null;
   }
 
+  // startTransition(() => {
+  //   setCount(2)
+  // })
+  // setCount(1)
+  // ! 2(Transition) -> 1
+  // 第一次渲染 处理 2 跳过更新克隆节点,处理 update 1更新状态,克隆节点 2(Transition) -> 1(NoLane)
+  // 第二次渲染 处理克隆2,当前Lane和hook的Lane是一样的,更新状态变成2,处理克隆节点更新状态变成1
   const baseState = hook.baseState;
   if (baseQueue === null) {
     // If there are no pending updates, then the memoized state should be the
@@ -1374,8 +1381,10 @@ function updateReducerImpl<S, A>(
       // Check if this update was made while the tree was hidden. If so, then
       // it's not a "base" update and we should disregard the extra base lanes
       // that were added to renderLanes when we entered the Offscreen tree.
+      // ! 是否需要跳过更新
       let shouldSkipUpdate = isHiddenUpdate
         ? !isSubsetOfLanes(getWorkInProgressRootRenderLanes(), updateLane)
+        // ! 当前渲染的 Lane 和 更新队列里依次取出来的 Lane 不一样
         : !isSubsetOfLanes(renderLanes, updateLane);
 
       if (enableGestureTransition && updateLane === GestureLane) {
@@ -1416,6 +1425,7 @@ function updateReducerImpl<S, A>(
           eagerState: update.eagerState,
           next: (null: any),
         };
+        // ! 克隆跳过的节点形成环形链表
         if (newBaseQueueLast === null) {
           newBaseQueueFirst = newBaseQueueLast = clone;
           newBaseState = newState;
@@ -1496,6 +1506,7 @@ function updateReducerImpl<S, A>(
               eagerState: update.eagerState,
               next: (null: any),
             };
+            // ! 先看克隆的链表
             if (newBaseQueueLast === null) {
               newBaseQueueFirst = newBaseQueueLast = clone;
               newBaseState = newState;
@@ -3631,7 +3642,6 @@ function dispatchSetState<S, A>(
     }
   }
 
-  // ! 根据事件环境分配 Lane
   const lane = requestUpdateLane(fiber);
   const didScheduleUpdate = dispatchSetStateInternal(
     fiber,
@@ -3661,7 +3671,6 @@ function dispatchSetStateInternal<S, A>(
     next: (null: any),
   };
 
-  // ! 当前正在渲染中
   if (isRenderPhaseUpdate(fiber)) {
     enqueueRenderPhaseUpdate(queue, update);
   } else {
@@ -3708,10 +3717,8 @@ function dispatchSetStateInternal<S, A>(
       }
     }
 
-    // ! 插入 Update 形成环形链表
     const root = enqueueConcurrentHookUpdate(fiber, queue, update, lane);
     if (root !== null) {
-      // ! 开始调度
       scheduleUpdateOnFiber(root, fiber, lane);
       entangleTransitionUpdate(root, queue, lane);
       return true;
