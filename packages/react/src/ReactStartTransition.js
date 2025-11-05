@@ -70,9 +70,11 @@ export function startTransition(
   if (__DEV__) {
     currentTransition._updatedFibers = new Set();
   }
+    // ! 绑定 Transition 更新优先级
   ReactSharedInternals.T = currentTransition;
 
   try {
+    // !执行callback
     const returnValue = scope();
     const onStartTransitionFinish = ReactSharedInternals.S;
     if (onStartTransitionFinish !== null) {
@@ -112,6 +114,7 @@ export function startTransition(
       }
       prevTransition.types = currentTransition.types;
     }
+    // ! 恢复上下文
     ReactSharedInternals.T = prevTransition;
   }
 }

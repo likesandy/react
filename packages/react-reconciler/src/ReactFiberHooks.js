@@ -3631,6 +3631,7 @@ function dispatchSetState<S, A>(
     }
   }
 
+  // ! 根据事件环境分配 Lane
   const lane = requestUpdateLane(fiber);
   const didScheduleUpdate = dispatchSetStateInternal(
     fiber,
@@ -3660,6 +3661,7 @@ function dispatchSetStateInternal<S, A>(
     next: (null: any),
   };
 
+  // ! 当前正在渲染中
   if (isRenderPhaseUpdate(fiber)) {
     enqueueRenderPhaseUpdate(queue, update);
   } else {
@@ -3706,8 +3708,10 @@ function dispatchSetStateInternal<S, A>(
       }
     }
 
+    // ! 插入 Update 形成环形链表
     const root = enqueueConcurrentHookUpdate(fiber, queue, update, lane);
     if (root !== null) {
+      // ! 开始调度
       scheduleUpdateOnFiber(root, fiber, lane);
       entangleTransitionUpdate(root, queue, lane);
       return true;

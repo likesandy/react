@@ -793,6 +793,7 @@ export function requestUpdateLane(fiber: Fiber): Lane {
   // Special cases
   const mode = fiber.mode;
   if (!disableLegacyMode && (mode & ConcurrentMode) === NoMode) {
+    // ! 默认都是同步更新
     return (SyncLane: Lane);
   } else if (
     (executionContext & RenderContext) !== NoContext &&
@@ -810,6 +811,7 @@ export function requestUpdateLane(fiber: Fiber): Lane {
     return pickArbitraryLane(workInProgressRootRenderLanes);
   }
 
+  // ! 如果是 Transition,标记为 TransitionLane
   const transition = requestCurrentTransition();
   if (transition !== null) {
     if (enableGestureTransition) {
@@ -953,6 +955,7 @@ export function scheduleUpdateOnFiber(
   }
 
   // Mark that the root has a pending update.
+  // ! 把 lane 标记到 root
   markRootUpdated(root, lane);
 
   if (
@@ -1019,7 +1022,10 @@ export function scheduleUpdateOnFiber(
       }
     }
 
+    // ! 把 root 加入全局调度表、安排兜底微任务
     ensureRootIsScheduled(root);
+
+    // ! 同步任务立马进行调度
     if (
       lane === SyncLane &&
       executionContext === NoContext &&
@@ -1094,6 +1100,7 @@ export function performWorkOnRoot(
   // We disable time-slicing in some cases: if the work has been CPU-bound
   // for too long ("expired" work, to prevent starvation), or we're in
   // sync-updates-by-default mode.
+  // ! 是否使用时间切片
   const shouldTimeSlice =
     (!forceSync &&
       !includesBlockingLane(lanes) &&
@@ -1105,6 +1112,7 @@ export function performWorkOnRoot(
     // even for regular pings.
     checkIfRootIsPrerendering(root, lanes);
 
+  // ! 渲染方式
   let exitStatus: RootExitStatus = shouldTimeSlice
     ? renderRootConcurrent(root, lanes)
     : renderRootSync(root, lanes, true);

@@ -213,6 +213,7 @@ function flushSyncWorkAcrossRoots_impl(
           if (nextLanes !== NoLanes) {
             // This root has pending sync work. Flush it now.
             didPerformSomeWork = true;
+            // ! 开始渲染
             performSyncWorkOnRoot(root, nextLanes);
           }
         } else {
