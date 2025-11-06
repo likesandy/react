@@ -34,6 +34,7 @@ function flushSyncImpl<R>(fn: (() => R) | void): R | void {
     ReactSharedInternals.T = previousTransition;
     ReactDOMSharedInternals.p /* ReactDOMCurrentUpdatePriority */ =
       previousUpdatePriority;
+    // ! flushSyncWork(触发同步渲染)
     const wasInRender =
       ReactDOMSharedInternals.d /* ReactDOMCurrentDispatcher */
         .f(); /* flushSyncWork */
