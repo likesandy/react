@@ -1022,10 +1022,10 @@ export function scheduleUpdateOnFiber(
       }
     }
 
-    // ! 把 root 加入全局调度表、安排兜底微任务
+    // ! 把 root 加入全局调度表、安排微任务
     ensureRootIsScheduled(root);
 
-    // ! 同步任务立马进行调度
+    // ! 同步任务并且不是并发模式立马进行调度(老版本)
     if (
       lane === SyncLane &&
       executionContext === NoContext &&

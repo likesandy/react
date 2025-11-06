@@ -1449,6 +1449,7 @@ function updateReducerImpl<S, A>(
           // This is not an optimistic update, and we're going to apply it now.
           // But, if there were earlier updates that were skipped, we need to
           // leave this update in the queue so it can be rebased later.
+          // ! 之前已经跳过过更新
           if (newBaseQueueLast !== null) {
             const clone: Update<S, A> = {
               // This update is going to be committed so we never want uncommit
@@ -1506,7 +1507,6 @@ function updateReducerImpl<S, A>(
               eagerState: update.eagerState,
               next: (null: any),
             };
-            // ! 先看克隆的链表
             if (newBaseQueueLast === null) {
               newBaseQueueFirst = newBaseQueueLast = clone;
               newBaseState = newState;
