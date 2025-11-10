@@ -1300,6 +1300,12 @@ function updateReducer<S, I, A>(
   return updateReducerImpl(hook, ((currentHook: any): Hook), reducer);
 }
 
+// ! useState/useReducer 更新阶段的核心函数
+// ! 功能: 1. 合并更新队列(pending → baseQueue)
+// !      2. 遍历更新队列,根据优先级处理更新
+// !      3. 跳过低优先级更新并克隆到新 baseQueue
+// !      4. 计算新状态,支持 eager evaluation 优化
+// !      5. 保证不同优先级渲染的状态一致性
 function updateReducerImpl<S, A>(
   hook: Hook,
   current: Hook,
@@ -1316,20 +1322,17 @@ function updateReducerImpl<S, A>(
 
   queue.lastRenderedReducer = reducer;
 
-  // The last rebase update that is NOT part of the base state.
+  // ! 上次渲染时被跳过的低优先级更新(环形链表)
   let baseQueue = hook.baseQueue;
 
-  // The last pending update that hasn't been processed yet.
+  // ! 本次渲染前产生的新更新
   const pendingQueue = queue.pending;
   if (pendingQueue !== null) {
-    // We have new updates that haven't been processed yet.
-    // We'll add them to the base queue.
     if (baseQueue !== null) {
-      // Merge the pending queue and the base queue.
-      const baseFirst = baseQueue.next;
-      const pendingFirst = pendingQueue.next;
-      baseQueue.next = pendingFirst;
-      pendingQueue.next = baseFirst;
+      const baseFirst = baseQueue.next;     
+      const pendingFirst = pendingQueue.next; 
+      baseQueue.next = pendingFirst;        
+      pendingQueue.next = baseFirst;        
     }
     if (__DEV__) {
       if (current.baseQueue !== baseQueue) {
@@ -1345,46 +1348,37 @@ function updateReducerImpl<S, A>(
     queue.pending = null;
   }
 
-  // startTransition(() => {
-  //   setCount(2)
-  // })
-  // setCount(1)
-  // ! 2(Transition) -> 1
-  // 第一次渲染 处理 2 跳过更新克隆节点,处理 update 1更新状态,克隆节点 2(Transition) -> 1(NoLane)
-  // 第二次渲染 处理克隆2,当前Lane和hook的Lane是一样的,更新状态变成2,处理克隆节点更新状态变成1
+  // ! 示例: startTransition(() => { setCount(2) }); setCount(1);
+  // ! 队列: update(2, TransitionLane) → update(1, SyncLane)
+  // ! 第一次渲染(SyncLane): 跳过 update(2),处理 update(1),克隆两者到 baseQueue
+  // ! 第二次渲染(TransitionLane): 重新处理所有克隆的更新,保证最终状态一致
+
+  // ! baseState: 计算新状态的起点(第一个被跳过的更新之前的状态)
   const baseState = hook.baseState;
+
   if (baseQueue === null) {
-    // If there are no pending updates, then the memoized state should be the
-    // same as the base state. Currently these only diverge in the case of
-    // useOptimistic, because useOptimistic accepts a new baseState on
-    // every render.
     hook.memoizedState = baseState;
     // We don't need to call markWorkInProgressReceivedUpdate because
     // baseState is derived from other reactive values.
   } else {
-    // We have a queue to process.
-    const first = baseQueue.next;
-    let newState = baseState;
+    // ! 之前有跳过的更新
+    const first = baseQueue.next;  
+    let newState = baseState;    
 
-    let newBaseState = null;
-    let newBaseQueueFirst = null;
-    let newBaseQueueLast: Update<S, A> | null = null;
-    let update = first;
-    let didReadFromEntangledAsyncAction = false;
+    let newBaseState = null;       
+    let newBaseQueueFirst = null;  
+    let newBaseQueueLast: Update<S, A> | null = null;  
+    let update = first;           
+    let didReadFromEntangledAsyncAction = false;  
     do {
-      // An extra OffscreenLane bit is added to updates that were made to
-      // a hidden tree, so that we can distinguish them from updates that were
-      // already there when the tree was hidden.
       const updateLane = removeLanes(update.lane, OffscreenLane);
       const isHiddenUpdate = updateLane !== update.lane;
 
-      // Check if this update was made while the tree was hidden. If so, then
-      // it's not a "base" update and we should disregard the extra base lanes
-      // that were added to renderLanes when we entered the Offscreen tree.
-      // ! 是否需要跳过更新
+      // ! 判断当前更新是否应该跳过(优先级不足)
+      // ! 核心逻辑: 检查 updateLane 是否包含在 renderLanes 中
+      // ! 例: renderLanes = SyncLane, updateLane = TransitionLane → 跳过
       let shouldSkipUpdate = isHiddenUpdate
         ? !isSubsetOfLanes(getWorkInProgressRootRenderLanes(), updateLane)
-        // ! 当前渲染的 Lane 和 更新队列里依次取出来的 Lane 不一样
         : !isSubsetOfLanes(renderLanes, updateLane);
 
       if (enableGestureTransition && updateLane === GestureLane) {
@@ -1413,11 +1407,10 @@ function updateReducerImpl<S, A>(
       }
 
       if (shouldSkipUpdate) {
-        // Priority is insufficient. Skip this update. If this is the first
-        // skipped update, the previous update/state is the new base
-        // update/state.
+        // ! 优先级不足,跳过此更新
+        // ! 需要克隆此更新到新 baseQueue,下次高优先级渲染时再处理
         const clone: Update<S, A> = {
-          lane: updateLane,
+          lane: updateLane,              
           revertLane: update.revertLane,
           gesture: update.gesture,
           action: update.action,
@@ -1425,36 +1418,33 @@ function updateReducerImpl<S, A>(
           eagerState: update.eagerState,
           next: (null: any),
         };
-        // ! 克隆跳过的节点形成环形链表
+
+        // ! 跳过的更新形成环形链表
         if (newBaseQueueLast === null) {
           newBaseQueueFirst = newBaseQueueLast = clone;
-          newBaseState = newState;
+          newBaseState = newState;  
         } else {
           newBaseQueueLast = newBaseQueueLast.next = clone;
         }
-        // Update the remaining priority in the queue.
-        // TODO: Don't need to accumulate this. Instead, we can remove
-        // renderLanes from the original lanes.
+
         currentlyRenderingFiber.lanes = mergeLanes(
           currentlyRenderingFiber.lanes,
           updateLane,
         );
         markSkippedUpdateLanes(updateLane);
       } else {
-        // This update does have sufficient priority.
-
-        // Check if this is an optimistic update.
+        // ! 处理当前更新(优先级足够)
+        // ! 检查是否是乐观更新(useOptimistic)
         const revertLane = update.revertLane;
         if (revertLane === NoLane) {
-          // This is not an optimistic update, and we're going to apply it now.
-          // But, if there were earlier updates that were skipped, we need to
-          // leave this update in the queue so it can be rebased later.
-          // ! 之前已经跳过过更新
+          // ! 普通更新
+          // ! ⭐ 关键判断: 之前是否有更新被跳过?
+          // ! 如果有(newBaseQueueLast !== null),则需要克隆当前更新
+          // ! 原因: 保证下次渲染时能重新应用所有更新,维持状态一致性
           if (newBaseQueueLast !== null) {
             const clone: Update<S, A> = {
-              // This update is going to be committed so we never want uncommit
-              // it. Using NoLane works because 0 is a subset of all bitmasks, so
-              // this will never be skipped by the check above.
+              // ! lane 设为 NoLane,保证下次渲染一定会处理此更新
+              // ! 因为 NoLane(0) 是所有优先级的子集
               lane: NoLane,
               revertLane: NoLane,
               gesture: null,
@@ -1466,42 +1456,32 @@ function updateReducerImpl<S, A>(
             newBaseQueueLast = newBaseQueueLast.next = clone;
           }
 
-          // Check if this update is part of a pending async action. If so,
-          // we'll need to suspend until the action has finished, so that it's
-          // batched together with future updates in the same action.
+          // ! 检查是否是异步 action 的一部分
+          // ! 如果是,稍后需要 suspend 等待 action 完成
           if (updateLane === peekEntangledActionLane()) {
             didReadFromEntangledAsyncAction = true;
           }
         } else {
-          // This is an optimistic update. If the "revert" priority is
-          // sufficient, don't apply the update. Otherwise, apply the update,
-          // but leave it in the queue so it can be either reverted or
-          // rebased in a subsequent render.
+          // ! 乐观更新(useOptimistic)
+          // ! 检查关联的 transition 是否已完成
           if (isSubsetOfLanes(renderLanes, revertLane)) {
-            // The transition that this optimistic update is associated with
-            // has finished. Pretend the update doesn't exist by skipping
-            // over it.
+            // ! transition 已完成,应该使用真实数据而非乐观数据
+            // ! 跳过这个乐观更新(不应用也不计算状态)
             update = update.next;
 
-            // Check if this update is part of a pending async action. If so,
-            // we'll need to suspend until the action has finished, so that it's
-            // batched together with future updates in the same action.
             if (revertLane === peekEntangledActionLane()) {
               didReadFromEntangledAsyncAction = true;
             }
-            continue;
+            continue; 
           } else {
+            // ! transition 未完成,保留乐观更新
+            // ! 克隆此更新到 baseQueue,等待 transition 完成后再回退
             const clone: Update<S, A> = {
-              // Once we commit an optimistic update, we shouldn't uncommit it
-              // until the transition it is associated with has finished
-              // (represented by revertLane). Using NoLane here works because 0
-              // is a subset of all bitmasks, so this will never be skipped by
-              // the check above.
+              // ! lane 设为 NoLane,保证不会被跳过
               lane: NoLane,
-              // Reuse the same revertLane so we know when the transition
-              // has finished.
+              // ! 保留 revertLane,用于检测 transition 何时完成
               revertLane: update.revertLane,
-              gesture: null, // If it commits, it's no longer a gesture update.
+              gesture: null,
               action: update.action,
               hasEagerState: update.hasEagerState,
               eagerState: update.eagerState,
@@ -1513,9 +1493,7 @@ function updateReducerImpl<S, A>(
             } else {
               newBaseQueueLast = newBaseQueueLast.next = clone;
             }
-            // Update the remaining priority in the queue.
-            // TODO: Don't need to accumulate this. Instead, we can remove
-            // renderLanes from the original lanes.
+
             currentlyRenderingFiber.lanes = mergeLanes(
               currentlyRenderingFiber.lanes,
               revertLane,
@@ -1524,21 +1502,22 @@ function updateReducerImpl<S, A>(
           }
         }
 
-        // Process this update.
+        // !计算新状态
         const action = update.action;
         if (shouldDoubleInvokeUserFnsInHooksDEV) {
           reducer(newState, action);
         }
+
         if (update.hasEagerState) {
-          // If this update is a state update (not a reducer) and was processed eagerly,
-          // we can use the eagerly computed state
           newState = ((update.eagerState: any): S);
         } else {
           newState = reducer(newState, action);
         }
       }
+
       update = update.next;
-    } while (update !== null && update !== first);
+    } while (update !== null && update !== first);  // 循环直到回到起点
+
 
     if (newBaseQueueLast === null) {
       newBaseState = newState;
@@ -1546,43 +1525,38 @@ function updateReducerImpl<S, A>(
       newBaseQueueLast.next = (newBaseQueueFirst: any);
     }
 
-    // Mark that the fiber performed work, but only if the new state is
-    // different from the current state.
+    // ! 检查状态是否真的发生了变化
     if (!is(newState, hook.memoizedState)) {
+      // ! 状态变化,标记此 fiber 接收到了更新
       markWorkInProgressReceivedUpdate();
 
-      // Check if this update is part of a pending async action. If so, we'll
-      // need to suspend until the action has finished, so that it's batched
-      // together with future updates in the same action.
-      // TODO: Once we support hooks inside useMemo (or an equivalent
-      // memoization boundary like Forget), hoist this logic so that it only
-      // suspends if the memo boundary produces a new value.
+      // ! 如果读取了异步 action,需要 suspend
       if (didReadFromEntangledAsyncAction) {
         const entangledActionThenable = peekEntangledActionThenable();
         if (entangledActionThenable !== null) {
-          // TODO: Instead of the throwing the thenable directly, throw a
-          // special object like `use` does so we can detect if it's captured
-          // by userspace.
+          // ! 抛出 thenable,触发 Suspense
+          // ! 等待 action 完成后再继续渲染
           throw entangledActionThenable;
         }
       }
     }
 
-    hook.memoizedState = newState;
-    hook.baseState = newBaseState;
-    hook.baseQueue = newBaseQueueLast;
+    // ! 当前状态(UI 显示的状态)
+    hook.memoizedState = newState;      
+    // ! 基础状态(下次计算的起点)
+    hook.baseState = newBaseState;      
+    // ! 被跳过的更新队列
+    hook.baseQueue = newBaseQueueLast;  
 
     queue.lastRenderedState = newState;
   }
 
   if (baseQueue === null) {
-    // `queue.lanes` is used for entangling transitions. We can set it back to
-    // zero once the queue is empty.
     queue.lanes = NoLanes;
   }
 
   const dispatch: Dispatch<A> = (queue.dispatch: any);
-  return [hook.memoizedState, dispatch];
+  return [hook.memoizedState, dispatch];  // 返回 [状态, dispatch 函数]
 }
 
 function rerenderReducer<S, I, A>(
@@ -3774,6 +3748,7 @@ function dispatchOptimisticSetState<S, A>(
 
   // For regular Transitions an optimistic update commits synchronously.
   // For gesture Transitions an optimistic update commits on the GestureLane.
+  // ! SyncLane(标准)
   const lane =
     enableGestureTransition && transition !== null && transition.gesture
       ? GestureLane
@@ -3782,6 +3757,7 @@ function dispatchOptimisticSetState<S, A>(
     lane: lane,
     // After committing, the optimistic update is "reverted" using the same
     // lane as the transition it's associated with.
+    // ! 乐观更新的revertLane: TransitionLane
     revertLane: requestTransitionLane(transition),
     gesture: null,
     action,
@@ -3806,6 +3782,7 @@ function dispatchOptimisticSetState<S, A>(
       }
     }
   } else {
+    // ! 调度更新
     const root = enqueueConcurrentHookUpdate(fiber, queue, update, lane);
     if (root !== null) {
       // NOTE: The optimistic update implementation assumes that the transition
